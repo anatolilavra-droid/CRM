@@ -4,6 +4,12 @@ A minimal CRM for managing clients and deals: an Express + SQLite REST API with 
 
 Originally started as a todo-list app, migrated to a CRM data model (`users` → `clients` → `deals`).
 
+## Screenshots
+
+| Login / sign-up | Clients | Deals (Kanban) |
+|---|---|---|
+| ![Login screen](./docs/screenshots/auth.png) | ![Clients directory](./docs/screenshots/clients.png) | ![Deals kanban board](./docs/screenshots/deals.png) |
+
 ## Features
 
 - Email/password authentication with JWT (register, login)
@@ -42,6 +48,39 @@ Originally started as a todo-list app, migrated to a CRM data model (`users` →
 | `deals` | `id`, `owner_id` → `users.id`, `client_id` → `clients.id`, `title`, `status` (`open`/`won`/`lost`), `amount`, `created_at` | A deal always belongs to a client and a manager |
 
 Every read/write query on `clients` and `deals` filters by `owner_id = req.user.id` (from the JWT, via `middleware/auth.js`) — not just on the frontend, but on every `SELECT`/`UPDATE`/`DELETE` in the routes.
+
+```mermaid
+erDiagram
+    USERS {
+        int id PK
+        text email
+        text password_hash
+        text created_at
+    }
+
+    CLIENTS {
+        int id PK
+        text name
+        text email
+        text phone
+        int owner_id FK
+        text created_at
+    }
+
+    DEALS {
+        int id PK
+        text title
+        text status
+        real amount
+        int client_id FK
+        int owner_id FK
+        text created_at
+    }
+
+    USERS ||--o{ CLIENTS : "owns"
+    USERS ||--o{ DEALS : "owns"
+    CLIENTS ||--o{ DEALS : "has"
+```
 
 ## Getting started
 
