@@ -1,9 +1,19 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 import db from "../db/database.js";
 
 const router = Router();
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: { error: "Too many login attempts. Please try again later." },
+});
 
 function issueToken(user) {
     return jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, {
@@ -35,7 +45,7 @@ router.post("/register", async (req, res) => {
     res.status(201).json({ token: issueToken(user), user });
 });
 
-router.post("/login", async (req, res) => {
+router.post("/login", loginLimiter, async (req, res) => {
     const { email, password } = req.body;
 
     if (typeof email !== "string" || typeof password !== "string") {
