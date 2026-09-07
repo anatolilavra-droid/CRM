@@ -9,6 +9,7 @@ import { dirname, join } from "path";
 import authRouter from "./routes/auth.js";
 import clientsRouter from "./routes/clients.js";
 import dealsRouter from "./routes/deals.js";
+import aiRouter from "./routes/ai.js";
 import db from "./db/database.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
@@ -26,6 +27,16 @@ const apiLimiter = rateLimit({
     limit: 100,
 });
 
+// Each request here calls a paid external LLM API — keep the ceiling low
+// regardless of the general API limiter above.
+const aiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many AI assistant requests. Please try again later." },
+});
+
 app.use(helmet());
 app.use(cors());
 app.use(morgan(NODE_ENV === "production" ? "combined" : "dev"));
@@ -39,6 +50,7 @@ app.get("/health", (req, res) => {
 app.use("/auth", apiLimiter, authRouter);
 app.use("/clients", apiLimiter, authMiddleware, clientsRouter);
 app.use("/deals", apiLimiter, authMiddleware, dealsRouter);
+app.use("/ai", aiLimiter, authMiddleware, aiRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -519,6 +519,17 @@ textarea {
   color: var(--color-primary);
 }
 
+.chip-btn-ai {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+.chip-btn-ai:hover {
+  background: var(--color-primary);
+  color: #fff;
+}
+
 /* Empty / loading states */
 
 .empty-state {
@@ -609,6 +620,10 @@ textarea {
   padding: 24px;
 }
 
+.modal-wide {
+  max-width: 520px;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -637,6 +652,27 @@ textarea {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
+}
+
+/* AI suggestion */
+
+.ai-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--color-text);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.ai-suggestion p {
+  margin: 0;
+}
+
+.ai-suggestion-error {
+  color: var(--color-danger);
 }
 
 @media (max-width: 720px) {

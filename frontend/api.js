@@ -76,6 +76,14 @@ function showToast(message, type = "error") {
   setTimeout(() => toast.remove(), 4000);
 }
 
+async function getDealSuggestion(dealId) {
+  const data = await apiRequest("/ai/suggest-action", {
+    method: "POST",
+    body: JSON.stringify({ deal_id: dealId }),
+  });
+  return data.suggestion;
+}
+
 function initials(name) {
   return name
     .trim()
@@ -103,4 +111,15 @@ function renderTopbar(activePage) {
   document.getElementById("logout-btn").addEventListener("click", logout);
 }
 
-export { apiRequest, requireAuth, setSession, clearSession, getUser, logout, showToast, initials, renderTopbar };
+export {
+  apiRequest,
+  requireAuth,
+  setSession,
+  clearSession,
+  getUser,
+  logout,
+  showToast,
+  initials,
+  renderTopbar,
+  getDealSuggestion,
+};

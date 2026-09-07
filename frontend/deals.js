@@ -1,4 +1,4 @@
-import { apiRequest, requireAuth, showToast, renderTopbar } from "./api.js";
+import { apiRequest, requireAuth, showToast, renderTopbar, getDealSuggestion } from "./api.js";
 
 requireAuth();
 renderTopbar("deals");
@@ -13,6 +13,9 @@ const form = document.getElementById("deal-form");
 const clientSelect = document.getElementById("deal-client");
 const titleField = document.getElementById("deal-title");
 const amountField = document.getElementById("deal-amount");
+
+const aiModal = document.getElementById("ai-modal");
+const aiModalBody = document.getElementById("ai-modal-body");
 
 const STATUSES = [
   { key: "open", label: "Open" },
@@ -39,6 +42,36 @@ document.getElementById("deal-cancel-btn").addEventListener("click", closeModal)
 modal.addEventListener("click", (e) => {
   if (e.target === modal) closeModal();
 });
+
+function closeAiModal() {
+  aiModal.classList.remove("visible");
+}
+
+document.getElementById("ai-modal-close").addEventListener("click", closeAiModal);
+document.getElementById("ai-modal-done-btn").addEventListener("click", closeAiModal);
+aiModal.addEventListener("click", (e) => {
+  if (e.target === aiModal) closeAiModal();
+});
+
+// Renders AI-generated plain-prose text as paragraphs. Escapes first, same as
+// every other user/AI-sourced string on this page — never trust raw text into innerHTML.
+function renderSuggestionHtml(text) {
+  return text
+    .split(/\n{2,}/)
+    .map((para) => `<p>${escapeHtml(para.trim()).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+async function openAiModal(dealId) {
+  aiModalBody.innerHTML = `<div class="loading-state">Thinking…</div>`;
+  aiModal.classList.add("visible");
+  try {
+    const suggestion = await getDealSuggestion(dealId);
+    aiModalBody.innerHTML = `<div class="ai-suggestion">${renderSuggestionHtml(suggestion)}</div>`;
+  } catch (err) {
+    aiModalBody.innerHTML = `<div class="ai-suggestion ai-suggestion-error">${escapeHtml(err.message)}</div>`;
+  }
+}
 
 function escapeHtml(str) {
   const div = document.createElement("div");
@@ -67,6 +100,7 @@ function dealCardHtml(deal) {
               `<button class="chip-btn move-${s.key}" data-move="${deal.id}" data-status="${s.key}">→ ${s.label}</button>`
           )
           .join("")}
+        <button class="chip-btn chip-btn-ai" data-ai="${deal.id}">✨ AI Insights</button>
         <button class="chip-btn" data-delete="${deal.id}">Delete</button>
       </div>
     </div>
@@ -106,6 +140,9 @@ function renderKanban(deals) {
   });
   container.querySelectorAll("[data-delete]").forEach((el) => {
     el.addEventListener("click", () => deleteDeal(el.dataset.delete));
+  });
+  container.querySelectorAll("[data-ai]").forEach((el) => {
+    el.addEventListener("click", () => openAiModal(el.dataset.ai));
   });
 }
 

@@ -17,6 +17,7 @@ Originally started as a todo-list app, migrated to a CRM data model (`users` →
 - Clients: create, list, view, edit, delete (delete is blocked while the client still has deals)
 - Deals: create, list (optionally filtered by client), edit, delete, move between pipeline stages (`open` / `won` / `lost`)
 - Frontend: auth screen (login + signup tabs), a clients directory, and a Kanban board for deals
+- **AI Assistant**: an "✨ AI Insights" button on each deal card calls Claude (Anthropic API) to summarize the deal and suggest a Next Best Action, scoped to the deal's owner
 - Persistent storage via SQLite (file-based, no external DB server)
 - Security headers via Helmet, request logging via Morgan
 - General API rate limiting, plus a dedicated stricter limiter on `/auth/login` to slow down password brute-forcing
@@ -31,6 +32,7 @@ Originally started as a todo-list app, migrated to a CRM data model (`users` →
 | Runtime | Node.js (ES modules) |
 | Web framework | Express |
 | Database | better-sqlite3 (SQLite) |
+| AI | @anthropic-ai/sdk (Claude) |
 | Auth | jsonwebtoken + bcryptjs |
 | Security headers | Helmet |
 | Logging | Morgan |
@@ -143,6 +145,8 @@ All variables live in `backend/.env` (see `backend/.env.example`).
 | `PORT` | Port the Express server listens on | `3000` |
 | `NODE_ENV` | Runtime environment; switches Morgan's log format between `dev` and `combined` | `development` |
 | `JWT_SECRET` | Secret used to sign and verify JWTs | *(none — must be set manually)* |
+| `ANTHROPIC_API_KEY` | Anthropic API key for the AI Assistant feature — get one at [console.anthropic.com](https://console.anthropic.com/) | *(none — AI routes return `503` until set)* |
+| `ANTHROPIC_MODEL` | Claude model used for deal suggestions | `claude-opus-5` |
 
 ## API reference
 
@@ -210,7 +214,17 @@ Partial update — `title`, `status` (`open`/`won`/`lost`), `amount`.
 
 **Response:** `204`.
 
-> General API routes are rate-limited to 100 requests per 15 minutes per client; `/auth/login` has its own stricter limit (see above).
+### `POST /ai/suggest-action`
+
+Generates a short summary + "Next Best Action" for one deal via Claude. Requires `ANTHROPIC_API_KEY` to be set.
+
+**Body:** `{ "deal_id": 1 }` (must reference a deal owned by the authenticated manager; the deal's client is re-verified independently)
+
+**Response `200`:** `{ "success": true, "suggestion": "..." }`
+
+**Errors:** `400` missing `deal_id` · `404` deal/client not found or not owned by this manager · `503` AI assistant not configured or misconfigured · `502` the AI request itself failed · `429` too many AI requests (rate-limited: 20 requests / 15 min per IP — each call costs a paid API request)
+
+> General API routes are rate-limited to 100 requests per 15 minutes per client; `/auth/login` and `/ai/*` have their own stricter limits (see above).
 
 ## Frontend
 
@@ -218,8 +232,8 @@ Partial update — `title`, `status` (`open`/`won`/`lost`), `amount`.
 |---|---|
 | `index.html` | Login / sign-up (tabs), redirects to `clients.html` on success |
 | `clients.html` | Client directory — create, edit, delete, jump to a client's deals |
-| `deals.html` | Kanban board (Open / Won / Lost) — create deals, move between columns, optionally filtered by `?client_id=` |
-| `api.js` | Shared fetch wrapper: attaches the JWT, redirects to login on `401`, toast notifications for errors |
+| `deals.html` | Kanban board (Open / Won / Lost) — create deals, move between columns, optionally filtered by `?client_id=`; each card has an "✨ AI Insights" button that opens a modal with Claude's summary + next-best-action |
+| `api.js` | Shared fetch wrapper: attaches the JWT, redirects to login on `401`, toast notifications for errors, plus `getDealSuggestion()` for the AI Assistant |
 
 The JWT and logged-in user are kept in `localStorage`; `requireAuth()` guards `clients.html`/`deals.html` and redirects to `index.html` if there's no token.
 
@@ -246,7 +260,10 @@ The JWT and logged-in user are kept in `localStorage`; `requireAuth()` guards `c
 │   ├── routes/
 │   │   ├── auth.js            # /auth/register, /auth/login (+ login rate limiter)
 │   │   ├── clients.js         # /clients CRUD, owner-scoped
-│   │   └── deals.js           # /deals CRUD, owner-scoped
+│   │   ├── deals.js           # /deals CRUD, owner-scoped
+│   │   └── ai.js              # POST /ai/suggest-action — owner-scoped, delegates to services/aiService.js
+│   ├── services/
+│   │   └── aiService.js       # Anthropic client + prompt construction
 │   └── db/
 │       ├── database.js        # better-sqlite3 connection
 │       ├── init.js            # Creates users/clients/deals tables + indexes
