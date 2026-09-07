@@ -6,8 +6,11 @@ import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import tasksRouter from "./routes/tasks.js";
+import authRouter from "./routes/auth.js";
+import clientsRouter from "./routes/clients.js";
+import dealsRouter from "./routes/deals.js";
 import db from "./db/database.js";
+import { authMiddleware } from "./middleware/auth.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,7 +36,9 @@ app.get("/health", (req, res) => {
     res.json({ status: "ok" });
 });
 
-app.use("/tasks", apiLimiter, tasksRouter);
+app.use("/auth", apiLimiter, authRouter);
+app.use("/clients", apiLimiter, authMiddleware, clientsRouter);
+app.use("/deals", apiLimiter, authMiddleware, dealsRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
