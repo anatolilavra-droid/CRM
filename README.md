@@ -1,51 +1,59 @@
-# Tasks API
+# CRM
 
-A minimal full-stack task manager: an Express + SQLite REST API paired with a vanilla JS/HTML/CSS frontend for creating, completing, and deleting tasks.
+A minimal CRM for managing clients and deals: an Express + SQLite REST API with JWT authentication, paired with a vanilla JS/HTML/CSS frontend (login/signup, a clients directory, and a Kanban-style deals pipeline).
 
-![Frontend screenshot](./docs/screenshot.png)
-
-> **Note:** add a screenshot at `./docs/screenshot.png` — it is not included yet.
+Originally started as a todo-list app, migrated to a CRM data model (`users` → `clients` → `deals`).
 
 ## Features
 
-- Create, list, update, and delete tasks (CRUD)
-- Toggle task completion from the UI
+- Email/password authentication with JWT (register, login)
+- Every client and deal is scoped to the manager who owns it (`owner_id`) — one manager never sees another manager's data
+- Clients: create, list, view, edit, delete (delete is blocked while the client still has deals)
+- Deals: create, list (optionally filtered by client), edit, delete, move between pipeline stages (`open` / `won` / `lost`)
+- Frontend: auth screen (login + signup tabs), a clients directory, and a Kanban board for deals
 - Persistent storage via SQLite (file-based, no external DB server)
+- Security headers via Helmet, request logging via Morgan
+- General API rate limiting, plus a dedicated stricter limiter on `/auth/login` to slow down password brute-forcing
 - Centralized error handling and a `404` handler for unknown routes
-- Health-check endpoint for uptime monitoring
-- Security headers via Helmet, request logging via Morgan, and rate limiting on the API
-- Input validation on task creation/updates
 - Graceful shutdown on `SIGINT`/`SIGTERM` (closes the HTTP server and the database connection)
 - Frontend served directly by the backend (single origin, no CORS setup needed in development)
 
 ## Tech stack
 
-| Layer | Technology | Version |
-|---|---|---|
-| Runtime | Node.js | 24.x (tested on v24.2.0) |
-| Web framework | Express | ^5.2.1 |
-| Database | better-sqlite3 (SQLite) | ^13.0.3 |
-| Security headers | Helmet | ^8.3.0 |
-| Logging | Morgan | ^1.12.0 |
-| Rate limiting | express-rate-limit | ^8.7.0 |
-| CORS | cors | ^2.8.6 |
-| Env config | dotenv | ^17.4.2 |
-| Frontend | HTML, CSS, vanilla JavaScript | — |
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js (ES modules) |
+| Web framework | Express |
+| Database | better-sqlite3 (SQLite) |
+| Auth | jsonwebtoken + bcryptjs |
+| Security headers | Helmet |
+| Logging | Morgan |
+| Rate limiting | express-rate-limit |
+| CORS | cors |
+| Env config | dotenv |
+| Frontend | HTML, CSS, vanilla JavaScript (ES modules) |
 
-`jsonwebtoken` and `bcryptjs` are installed as a foundation for future authentication work but are not wired into any route yet.
+## Data model
+
+| Table | Key fields | Notes |
+|---|---|---|
+| `users` | `id`, `email` (unique), `password_hash`, `created_at` | One row per manager |
+| `clients` | `id`, `owner_id` → `users.id`, `name`, `email`, `phone`, `created_at` | Owned by exactly one manager |
+| `deals` | `id`, `owner_id` → `users.id`, `client_id` → `clients.id`, `title`, `status` (`open`/`won`/`lost`), `amount`, `created_at` | A deal always belongs to a client and a manager |
+
+Every read/write query on `clients` and `deals` filters by `owner_id = req.user.id` (from the JWT, via `middleware/auth.js`) — not just on the frontend, but on every `SELECT`/`UPDATE`/`DELETE` in the routes.
 
 ## Getting started
 
 ### Prerequisites
 
-- Node.js 24.x or later
-- npm
+- Node.js 20+ and npm
 
 ### Clone
 
 ```bash
-git clone <repository-url>
-cd "furst fillstack"
+git clone https://github.com/anatolilavra-droid/CRM.git
+cd CRM
 ```
 
 ### Install
@@ -57,17 +65,15 @@ npm install
 
 ### Environment setup
 
-Copy the example env file and adjust values as needed:
-
 ```bash
 cp .env.example .env
 ```
 
-At minimum, set `JWT_SECRET` to a real random value before deploying anywhere public (it is currently unused by the app but reserved for future auth).
+Set `JWT_SECRET` to a long random value (e.g. `openssl rand -base64 32`) before running anywhere beyond your own machine — tokens signed with a weak or default secret can be forged.
 
 ### Initialize the database
 
-The `tasks` table is created automatically the first time the server starts (`db/database.js` + `routes/tasks.js` share the same `better-sqlite3` connection). To create it explicitly without starting the server:
+`users`, `clients`, and `deals` tables (plus indexes) are created by:
 
 ```bash
 npm run db:init
@@ -87,7 +93,7 @@ Uses `node --watch` to restart the server automatically on file changes.
 npm start
 ```
 
-Open `http://localhost:3000` — the backend serves the frontend directly from the `frontend/` directory, so no separate frontend server is needed.
+Open `http://localhost:3000` — the backend serves the frontend directly from the `frontend/` directory.
 
 ## Environment variables
 
@@ -97,7 +103,7 @@ All variables live in `backend/.env` (see `backend/.env.example`).
 |---|---|---|
 | `PORT` | Port the Express server listens on | `3000` |
 | `NODE_ENV` | Runtime environment; switches Morgan's log format between `dev` and `combined` | `development` |
-| `JWT_SECRET` | Reserved for future JWT-based authentication; not currently used by any route | *(none — must be set manually)* |
+| `JWT_SECRET` | Secret used to sign and verify JWTs | *(none — must be set manually)* |
 
 ## API reference
 
@@ -105,113 +111,127 @@ Base URL: `http://localhost:3000`
 
 ### `GET /health`
 
-Health check.
+Health check. **Response `200`:** `{ "status": "ok" }`
 
-**Response `200`:**
-```json
-{ "status": "ok" }
-```
+### `POST /auth/register`
 
-### `GET /tasks`
+**Body:** `{ "email": "a@b.com", "password": "at least 8 chars" }`
 
-List all tasks.
+**Response `201`:** `{ "token": "...", "user": { "id": 1, "email": "a@b.com" } }`
 
-**Response `200`:**
-```json
-[
-  { "id": 1, "title": "Buy milk", "done": 0, "created_at": "2026-09-07 18:17:53" }
-]
-```
+**Errors:** `400` invalid input · `409` email already registered
 
-### `GET /tasks/:id`
+### `POST /auth/login`
 
-Get a single task by id.
+**Body:** `{ "email": "a@b.com", "password": "..." }`
 
-**Response `200`:**
-```json
-{ "id": 1, "title": "Buy milk", "done": 0, "created_at": "2026-09-07 18:17:53" }
-```
+**Response `200`:** `{ "token": "...", "user": { "id": 1, "email": "a@b.com" } }`
 
-**Errors:** `404` — `{ "error": "Task not found" }`
+**Errors:** `400` invalid input · `401` invalid credentials · `429` too many attempts (rate-limited: 10 requests / 15 min per IP, only failed attempts count)
 
-### `POST /tasks`
+All routes below require `Authorization: Bearer <token>` and only ever return/modify rows owned by the authenticated user.
 
-Create a task.
+### `GET /clients`
 
-**Request body:**
-```json
-{ "title": "Buy milk", "done": false }
-```
-`title` is required (non-empty string). `done` is optional (boolean, defaults to `false`).
+List the authenticated manager's clients.
 
-**Response `201`:**
-```json
-{ "id": 3, "title": "Buy milk", "done": 0, "created_at": "2026-09-07 18:17:53" }
-```
+### `GET /clients/:id`
 
-**Errors:**
-- `400` — `{ "error": "title is required and must be a non-empty string" }`
-- `400` — `{ "error": "done must be a boolean" }`
+Get one client. **Errors:** `404` if it doesn't exist or belongs to another manager.
 
-### `PATCH /tasks/:id`
+### `POST /clients`
 
-Update a task's title and/or completion status. Both fields are optional.
+**Body:** `{ "name": "Acme Inc", "email": "contact@acme.com", "phone": "+1..." }` (`name` required, `email`/`phone` optional)
 
-**Request body:**
-```json
-{ "done": true }
-```
+### `PATCH /clients/:id`
 
-**Response `200`:**
-```json
-{ "id": 3, "title": "Buy milk", "done": 1, "created_at": "2026-09-07 18:17:53" }
-```
+Partial update — same fields as `POST`, all optional.
 
-**Errors:**
-- `404` — `{ "error": "Task not found" }`
-- `400` — `{ "error": "title must be a non-empty string" }`
-- `400` — `{ "error": "done must be a boolean" }`
+### `DELETE /clients/:id`
 
-### `DELETE /tasks/:id`
+**Response:** `204`. **Errors:** `409` if the client still has deals.
 
-Delete a task.
+### `GET /deals`
 
-**Response:** `204 No Content`
+List the authenticated manager's deals. Optional query param `client_id` filters to one client's deals.
 
-**Errors:** `404` — `{ "error": "Task not found" }`
+### `GET /deals/:id`
 
-> All `/tasks` routes are rate-limited to 100 requests per 15 minutes per client.
+Get one deal. **Errors:** `404` if it doesn't exist or belongs to another manager.
+
+### `POST /deals`
+
+**Body:** `{ "client_id": 1, "title": "Website redesign", "status": "open", "amount": 1500 }` (`client_id` and `title` required; `status` defaults to `open`; `client_id` must reference a client owned by the same manager)
+
+### `PATCH /deals/:id`
+
+Partial update — `title`, `status` (`open`/`won`/`lost`), `amount`.
+
+### `DELETE /deals/:id`
+
+**Response:** `204`.
+
+> General API routes are rate-limited to 100 requests per 15 minutes per client; `/auth/login` has its own stricter limit (see above).
+
+## Frontend
+
+| Page | Purpose |
+|---|---|
+| `index.html` | Login / sign-up (tabs), redirects to `clients.html` on success |
+| `clients.html` | Client directory — create, edit, delete, jump to a client's deals |
+| `deals.html` | Kanban board (Open / Won / Lost) — create deals, move between columns, optionally filtered by `?client_id=` |
+| `api.js` | Shared fetch wrapper: attaches the JWT, redirects to login on `401`, toast notifications for errors |
+
+The JWT and logged-in user are kept in `localStorage`; `requireAuth()` guards `clients.html`/`deals.html` and redirects to `index.html` if there's no token.
 
 ## Project structure
 
 ```
 .
-├── frontend/               # Static frontend, served by the backend
-│   ├── index.html
-│   ├── styles.css
-│   └── app.js
+├── frontend/
+│   ├── index.html           # Auth (login/signup)
+│   ├── clients.html
+│   ├── deals.html
+│   ├── api.js                # Shared fetch wrapper + auth guard
+│   ├── auth.js
+│   ├── clients.js
+│   ├── deals.js
+│   └── styles.css
 ├── backend/
-│   ├── index.js            # App entry point: middleware, routes, graceful shutdown
+│   ├── index.js               # App entry point: middleware, routes, graceful shutdown
 │   ├── package.json
-│   ├── .env.example        # Template for backend/.env (not committed)
+│   ├── .env.example
 │   ├── middleware/
-│   │   └── errorHandler.js # Centralized 404 and error handlers
+│   │   ├── auth.js            # JWT verification, sets req.user
+│   │   └── errorHandler.js    # Centralized 404 and error handlers
 │   ├── routes/
-│   │   └── tasks.js        # Task CRUD routes + input validation
+│   │   ├── auth.js            # /auth/register, /auth/login (+ login rate limiter)
+│   │   ├── clients.js         # /clients CRUD, owner-scoped
+│   │   └── deals.js           # /deals CRUD, owner-scoped
 │   └── db/
-│       ├── database.js     # better-sqlite3 connection
-│       ├── init.js         # Creates the tasks table (also runs on server start)
-│       └── data.db         # SQLite database file (gitignored)
+│       ├── database.js        # better-sqlite3 connection
+│       ├── init.js            # Creates users/clients/deals tables + indexes
+│       └── data.db            # SQLite database file (gitignored)
 └── README.md
 ```
 
+## Known limitations / roadmap
+
+These are known trade-offs made to keep this a learning-sized project, not blockers for local use:
+
+- JWT is stored in `localStorage`, which is vulnerable to XSS. A production deployment should move to an httpOnly cookie.
+- No token revocation — a token is valid for its full lifetime (7 days); logout only clears it client-side.
+- No automated tests or CI yet.
+- `GET /clients` and `GET /deals` return the full list with no pagination.
+- SQLite is fine for a single-instance learning project; a real multi-user deployment would move to Postgres.
+
 ## Deployment
 
-1. Provision a Node.js 24.x runtime on your target host (VM, container, or PaaS).
-2. Copy the repository, run `npm install --omit=dev` inside `backend/` if you later add dev-only dependencies (currently all dependencies are runtime).
+1. Provision a Node.js runtime on your target host.
+2. Copy the repository, run `npm install` inside `backend/`.
 3. Set environment variables (`PORT`, `NODE_ENV=production`, `JWT_SECRET`) via your platform's secret/config mechanism — do not commit `.env`.
-4. Run `npm start` from `backend/`, or point your process manager (e.g. `pm2`, `systemd`, or your platform's built-in one) at `node backend/index.js`.
-5. The SQLite file (`backend/db/data.db`) is created on disk next to the code; ensure the deployment target has a persistent, writable volume for it — ephemeral filesystems (e.g. some serverless/container platforms) will lose data on restart.
+4. Run `npm start` from `backend/`, or point your process manager at `node backend/index.js`.
+5. The SQLite file (`backend/db/data.db`) is created on disk next to the code; ensure the deployment target has a persistent, writable volume for it.
 6. Put the app behind a reverse proxy (e.g. Nginx) or your platform's load balancer for TLS termination.
 
 ## License
